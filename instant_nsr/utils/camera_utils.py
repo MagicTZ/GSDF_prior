@@ -61,7 +61,7 @@ def cameraList_from_camInfos(cam_infos, resolution_scale, args):
 
 def camera_to_JSON(id, camera : Camera):
     Rt = np.zeros((4, 4))
-    Rt[:3, :3] = camera.R.transpose()
+    Rt[:3, :3] = camera.R.T  # Use .T for NumPy arrays
     Rt[:3, 3] = camera.T
     Rt[3, 3] = 1.0
 
