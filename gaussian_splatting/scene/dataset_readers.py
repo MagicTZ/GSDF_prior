@@ -222,7 +222,7 @@ def normalize_scene(pcd,cam_infos_unsorted,inv_trans, scale):
         C2W_norm[3,3] = 1
         # C2W_norm = (custom_inv_trans @ C2W_norm)
         W2C_norm = np.linalg.inv(C2W_norm)
-        R_norm = W2C_norm[:3, :3].transpose()
+        R_norm = W2C_norm[:3, :3].T  # Use .T for NumPy arrays
         t_norm = W2C_norm[:3, 3]
         cam_info = CameraInfo(uid=cam.uid, R=R_norm, T=t_norm, FovY=cam.FovY, FovX=cam.FovX, image=cam.image,
                               image_path=cam.image_path, image_name=cam.image_name, width=cam.width, height=cam.height,
