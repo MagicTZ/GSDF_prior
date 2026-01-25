@@ -318,11 +318,27 @@ def readColmapSceneInfo(path, images, eval, lod, llffhold=8, scale_input=1.0, ce
         tc = torch.tensor(center_input).reshape(3, 1)
         inv_trans = torch.cat([torch.cat([torch.eye(3), -tc], dim=1), torch.as_tensor([[0.,0.,0.,1.]])], dim=0)
         scale = scale_input
+        # Save transformation parameters
+        transform_params = {
+            'center': center_input,
+            'scale': float(scale),
+            'inv_trans': inv_trans.cpu().numpy().tolist()
+        }
     else:
         inv_trans, scale, tc = normalize_info(cam_extrinsics, pcd)
         scale=1.0
+        # Save transformation parameters
+        transform_params = {
+            'center': tc.squeeze().cpu().numpy().tolist(),
+            'scale': float(scale),
+            'inv_trans': inv_trans.cpu().numpy().tolist()
+        }
 
-    
+    # Save transformation parameters to JSON file
+    transform_file = os.path.join(path, 'transform_params_gs.json')
+    with open(transform_file, 'w') as f:
+        json.dump(transform_params, f, indent=2)
+    print(f"Saved GS transformation parameters to {transform_file}")
     
     pcd, cam_infos = normalize_scene(pcd,cam_infos_unsorted,inv_trans, scale)
     

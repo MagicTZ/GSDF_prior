@@ -59,8 +59,15 @@ def simple_normalize_poses(poses, pts, special_c2w):
     pts = (inv_trans.cuda() @ bb)[:,:3,0]
 
     pts=pts.cpu()
+    
+    # Prepare transformation parameters for saving
+    transform_params = {
+        'center': tc.squeeze().cpu().numpy().tolist(),
+        'scale': 1.0,  # No scaling in simple_normalize_poses
+        'inv_trans': inv_trans.cpu().numpy().tolist()
+    }
 
-    return poses_norm, pts, special_c2w_homo
+    return poses_norm, pts, special_c2w_homo, transform_params
 
 def normalize_poses_with_given(poses, pts, special_c2w,given_center, given_scale):
     
@@ -250,9 +257,22 @@ class ColmapDatasetBase():
             #normalize the pt and camera poses accordingto the given parameters or automaticaly
             if self.config.neuralangelo_scale!=0.0 or self.config.neuralangelo_center!=[0,0,0]:
                 all_c2w, pts3d, special_c2w = normalize_poses_with_given(all_c2w, pts3d, special_c2w,self.config.neuralangelo_center, self.config.neuralangelo_scale)
+                # Save transformation parameters
+                transform_params = {
+                    'center': self.config.neuralangelo_center,
+                    'scale': float(self.config.neuralangelo_scale),
+                    'inv_trans': None  # Not available for given params
+                }
             else:
                 
-                all_c2w, pts3d, special_c2w = simple_normalize_poses(all_c2w, pts3d, special_c2w)
+                all_c2w, pts3d, special_c2w, transform_params = simple_normalize_poses(all_c2w, pts3d, special_c2w)
+            
+            # Save transformation parameters to JSON file
+            transform_file = os.path.join(self.config.root_dir, 'transform_params_sdf.json')
+            import json
+            with open(transform_file, 'w') as f:
+                json.dump(transform_params, f, indent=2)
+            print(f"Saved SDF transformation parameters to {transform_file}")
             ColmapDatasetBase.properties = {
                 'w': w,
                 'h': h,

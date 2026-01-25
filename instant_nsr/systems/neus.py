@@ -864,17 +864,44 @@ class NeuSSystem(BaseSystem):
     
     def export(self):
         mesh = self.model.export(self.config.export)
-        # if self.config.model.if_gaussian:
-        #     tc = torch.tensor(self.scene.center).reshape(3)
-        #     pts = mesh['v_pos']
-        #     pts = pts * self.scene.scale
-        #     pts += tc
-        #     mesh['v_pos'] = pts
-      
-        self.save_mesh(
-            f"it{self.global_step}-{self.config.model.geometry.isosurface.method}{self.config.model.geometry.isosurface.resolution}.ply",
-            **mesh
-        )        
+        
+        # Apply inverse transformation to convert back to original coordinate system
+        transform_file = os.path.join(self.config.dataset.root_dir, 'transform_params_sdf.json')
+        if os.path.exists(transform_file):
+            with open(transform_file, 'r') as f:
+                transform_params = json.load(f)
+            
+            print(f"Loading transformation parameters from {transform_file}")
+            print(f"  Center: {transform_params['center']}")
+            print(f"  Scale: {transform_params['scale']}")
+            
+            # Get mesh vertices
+            v_pos = mesh['v_pos']  # Shape: (N, 3)
+            
+            # Apply inverse transformation
+            # Step 1: Inverse scale
+            scale = transform_params['scale']
+            v_pos_scaled = v_pos * scale
+            
+            # Step 2: Inverse translation (add back the center)
+            center = torch.tensor(transform_params['center'], dtype=v_pos.dtype, device=v_pos.device)
+            v_pos_original = v_pos_scaled + center
+            
+            # Update mesh vertices
+            mesh['v_pos'] = v_pos_original
+            
+            print(f"Applied inverse transformation to mesh vertices")
+            print(f"  Original bbox: [{v_pos.min(0)[0].cpu().numpy()}] to [{v_pos.max(0)[0].cpu().numpy()}]")
+            print(f"  Transformed bbox: [{v_pos_original.min(0)[0].cpu().numpy()}] to [{v_pos_original.max(0)[0].cpu().numpy()}]")
+            
+            # Save mesh with original coordinates
+            mesh_filename = f"it{self.global_step}-{self.config.model.geometry.isosurface.method}{self.config.model.geometry.isosurface.resolution}_original.ply"
+        else:
+            print(f"Warning: Transformation file {transform_file} not found, saving mesh in normalized coordinates")
+            mesh_filename = f"it{self.global_step}-{self.config.model.geometry.isosurface.method}{self.config.model.geometry.isosurface.resolution}.ply"
+        
+        self.save_mesh(mesh_filename, **mesh)
+        print(f"Saved mesh to {mesh_filename}")        
 
     def prepare_output_and_logger(self,args):   
 
