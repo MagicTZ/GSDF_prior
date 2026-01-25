@@ -1,35 +1,31 @@
-name: barn
-tag: "gs_barn_curv_1_pre_15k_0.01"
+name: 0a184cf634
+tag: "gsdf_scannetpp_with_prior"
 seed: 42
 
 dataset:
   name: colmap
-  root_dir: /root/autodl-tmp/Proj/GS-Reconstruction/Data/TNT/Barn
-  img_downscale: 1 # (resolution) specify training image size by either img_wh or img_downscale
-  up_est_method: ground # if true, use estimated ground plane normal direction as up direction
+  root_dir: /root/autodl-tmp/Proj/GS-Reconstruction/Data/ScanNetpp/0a184cf634
+  img_downscale: 1
+  up_est_method: ground
   center_est_method: point
   n_test_traj_steps: 2
   apply_mask: false
   load_data_on_gpu: true
-  # neuralangelo_scale: 3.1436941869432533
-  # neuralangelo_center: [-0.23212015137539144,-0.15154983037509506,0.41666264440346557]
   neuralangelo_scale: 0
   neuralangelo_center: [0,0,0]
-  # External depth/normal prior paths (relative to root_dir)
-  depths: ""  # e.g., "depths_any2" or "depths_metric3dv2"
-  normals: "" # e.g., "normals"
+  # External depth/normal prior paths
+  depths: "metric3dv2"   # 使用 metric3dv2 深度
+  normals: "normals"     # 使用 normals 法线
 
 model:
   name: neus
   radius: 3.1
   using_pretrain: false
-  using_pretrain_path: output/barn
+  using_pretrain_path: output/0a184cf634
   num_samples_per_ray: 1024
   gs_sampling: true
   num_samples_equispaced: 64
   num_samples_full: 1024
-
-  # num_samples_importance: 16
   train_num_rays: 256
   max_train_num_rays: 8192
   grid_prune: true
@@ -51,9 +47,7 @@ model:
     name: volume-sdf-sg
     radius: ${model.radius}
     feature_dim: 64
-    # grad_type: finite_difference
     grad_type: analytic
-
     finite_difference_eps: progressive
     custom_smoothing: true
     isosurface:
@@ -68,7 +62,6 @@ model:
       log2_hashmap_size: 21
       base_resolution: 32
       per_level_scale: 1.3195079107728942
-      # per_level_scale: 1.381912879967
       include_xyz: true
       start_level: 8
       start_step: 5000
@@ -84,7 +77,7 @@ model:
       weight_norm: true
   texture:
     name: volume-radiance
-    input_feature_dim: ${add:${model.geometry.feature_dim},3} # surface normal as additional input
+    input_feature_dim: ${add:${model.geometry.feature_dim},3}
     dir_encoding_config:
       otype: SphericalHarmonics
       degree: 4
@@ -96,7 +89,6 @@ model:
       n_hidden_layers: 2
       weight_norm: true
     color_activation: sigmoid
-  # background model configurations
   num_samples_per_ray_bg: 256
   geometry_bg:
     name: volume-density
@@ -142,7 +134,6 @@ system:
     lambda_rgb_l1: 1.
     lambda_mask: 0.0
     lambda_eikonal: 0.1
-    # lambda_curvature: [0,0.0,0.0005,1000,0.0005]
     lambda_curvature: 0.0
     lambda_sparsity: 0.0
     lambda_distortion: 0.0
@@ -151,20 +142,19 @@ system:
     lambda_depth: 0.0
     sparsity_scale: 0.
     lambda_smoothing: [0,0.0,1,2000,0.05]
-    # lambda_smoothing: 0.0
-    depth_w: 0.5    # lamda_d in Eq.7 (SDF-GS mutual guidance)
-    normal_w: 0.01  # lamda_n in Eq.8 (SDF-GS mutual guidance)
-    # === External depth/normal prior parameters ===
-    use_external_depth_prior: false   # Enable external depth prior
-    use_external_normal_prior: false  # Enable external normal prior
-    depth_prior_init: 0.1             # Initial weight for external depth prior
-    depth_prior_final: 0.01           # Final weight for external depth prior
-    depth_prior_maxstep: 10000        # Steps to decay from init to final
-    normal_prior_init: 0.5            # Initial weight for external normal prior
-    normal_prior_final: 0.01          # Final weight for external normal prior
-    normal_prior_maxstep: 10000       # Steps to decay from init to final
-  growing_weight: 0.00015  # w_g in Eq.3
-
+    # SDF-GS mutual guidance (原有)
+    depth_w: 0.5
+    normal_w: 0.01
+    # === 外部深度/法线先验参数 (新增) ===
+    use_external_depth_prior: true    # 启用外部深度先验
+    use_external_normal_prior: true   # 启用外部法线先验
+    depth_prior_init: 0.1             # 深度先验初始权重
+    depth_prior_final: 0.01           # 深度先验最终权重
+    depth_prior_maxstep: 10000        # 权重衰减步数
+    normal_prior_init: 0.5            # 法线先验初始权重
+    normal_prior_final: 0.01          # 法线先验最终权重
+    normal_prior_maxstep: 10000       # 权重衰减步数
+  growing_weight: 0.00015
 
   optimizer:
     name: AdamW
@@ -201,9 +191,6 @@ system:
         args:
           factor: 1.0
           total_iters: ${system.constant_steps}
-      # - name: ExponentialLR
-      #   args:
-      #     gamma: ${calc_exp_lr_decay_rate:0.4,${sub:${trainer.max_steps},${system.constant_steps}}}
       - name: ConstantLR
         args:
           factor: 0.1

@@ -45,7 +45,12 @@ class Scene:
         self.test_cameras = {}
 
         if os.path.exists(os.path.join(args.source_path, "sparse")) or os.path.exists(os.path.join(args.source_path, "colmap")):
-            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, args.lod,scale_input=given_scale,center_input=given_center)
+            # Get depths and normals paths from args (with defaults)
+            depths = getattr(args, 'depths', "")
+            normals = getattr(args, 'normals', "")
+            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, args.lod,
+                                                          scale_input=given_scale, center_input=given_center,
+                                                          depths=depths, normals=normals)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)

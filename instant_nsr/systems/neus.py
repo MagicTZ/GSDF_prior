@@ -18,7 +18,7 @@ from instant_nsr.utils.loss_utils import l1_loss, ssim
 from gaussian_splatting import gaussian_renderer
 import sys
 from gaussian_splatting.scene import Scene, GaussianModel
-from gaussian_splatting.utils.general_utils import safe_state
+from gaussian_splatting.utils.general_utils import safe_state, get_expon_lr_func
 import uuid
 from gaussian_splatting.utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
@@ -206,6 +206,32 @@ class NeuSSystem(BaseSystem):
             self.ema_loss_for_log = 0.0
             self.dataset_size=0
             self.last_iteration_time=0
+            
+            # === External depth/normal prior weight schedulers ===
+            # Get config values with defaults
+            depth_prior_init = self.config.system.loss.get('depth_prior_init', 0.1)
+            depth_prior_final = self.config.system.loss.get('depth_prior_final', 0.01)
+            depth_prior_maxstep = self.config.system.loss.get('depth_prior_maxstep', 10000)
+            normal_prior_init = self.config.system.loss.get('normal_prior_init', 0.5)
+            normal_prior_final = self.config.system.loss.get('normal_prior_final', 0.01)
+            normal_prior_maxstep = self.config.system.loss.get('normal_prior_maxstep', 10000)
+            
+            self.depth_prior_weight = get_expon_lr_func(
+                lr_init=depth_prior_init,
+                lr_final=depth_prior_final,
+                max_steps=depth_prior_maxstep
+            )
+            self.normal_prior_weight = get_expon_lr_func(
+                lr_init=normal_prior_init,
+                lr_final=normal_prior_final,
+                max_steps=normal_prior_maxstep
+            )
+            self.use_external_depth_prior = self.config.system.loss.get('use_external_depth_prior', False)
+            self.use_external_normal_prior = self.config.system.loss.get('use_external_normal_prior', False)
+            if self.use_external_depth_prior:
+                self.loggger.info(f"External depth prior enabled: init={depth_prior_init}, final={depth_prior_final}, maxstep={depth_prior_maxstep}")
+            if self.use_external_normal_prior:
+                self.loggger.info(f"External normal prior enabled: init={normal_prior_init}, final={normal_prior_final}, maxstep={normal_prior_maxstep}")
             #Using a pretrained Scaffold-GS
             if self.config.model.using_pretrain:
                 self.scene = Scene(self.lp, self.gaussians, load_iteration=15000, shuffle=False, if_pretrain=self.config.model.using_pretrain,pretrain_path=self.config.model.using_pretrain_path,given_scale=self.config.dataset.neuralangelo_scale,given_center=self.config.dataset.neuralangelo_center)
@@ -562,11 +588,56 @@ class NeuSSystem(BaseSystem):
                 # normalzied the depth loss by the frontground size.
                 depth_loss_gs = loss_depth_L1_gs * self.C(self.config.system.loss.depth_w)/self.config.model.radius
 
+                # === External depth prior loss ===
+                external_depth_prior_loss = torch.tensor(0.0, device="cuda")
+                if self.use_external_depth_prior and hasattr(viewpoint_cam, 'invdepthmap') and viewpoint_cam.invdepthmap is not None and viewpoint_cam.depth_reliable:
+                    current_depth_prior_weight = self.depth_prior_weight(current_epoch_gs)
+                    if current_depth_prior_weight > 0:
+                        # Get rendered depth from GS (reshape to image size)
+                        render_depth = picked_gs_depth.view(viewpoint_cam.image_height, viewpoint_cam.image_width)
+                        # External depth prior (inverse depth)
+                        mono_invdepth = viewpoint_cam.invdepthmap.cuda().squeeze()
+                        # Convert to inverse depth and compute loss
+                        render_invdepth = 1.0 / (render_depth + 1e-6)
+                        # Pearson correlation based loss (scale-invariant)
+                        valid_mask = (mono_invdepth > 0) & (render_invdepth > 0)
+                        if valid_mask.sum() > 100:
+                            mono_valid = mono_invdepth[valid_mask]
+                            render_valid = render_invdepth[valid_mask]
+                            # Normalize both to zero mean and unit variance
+                            mono_norm = (mono_valid - mono_valid.mean()) / (mono_valid.std() + 1e-6)
+                            render_norm = (render_valid - render_valid.mean()) / (render_valid.std() + 1e-6)
+                            # Pearson correlation loss: 1 - correlation
+                            correlation = (mono_norm * render_norm).mean()
+                            external_depth_prior_loss = current_depth_prior_weight * (1.0 - correlation)
+                        self.log('train/GS_external_depth_prior_loss', external_depth_prior_loss)
+                        self.log('train/GS_depth_prior_weight', current_depth_prior_weight)
+
+                # === External normal prior loss ===
+                external_normal_prior_loss = torch.tensor(0.0, device="cuda")
+                if self.use_external_normal_prior and hasattr(viewpoint_cam, 'normalmap') and viewpoint_cam.normalmap is not None:
+                    current_normal_prior_weight = self.normal_prior_weight(current_epoch_gs)
+                    if current_normal_prior_weight > 0:
+                        # Get rendered normal from GS
+                        gs_normal_img = picked_gs_normal.view(viewpoint_cam.image_height, viewpoint_cam.image_width, 3).permute(2, 0, 1)
+                        # External normal prior
+                        mono_normal = viewpoint_cam.normalmap.cuda()
+                        # Cosine similarity loss
+                        cos_sim = (gs_normal_img * mono_normal).sum(dim=0)  # (H, W)
+                        normal_dot_loss = (1.0 - cos_sim).mean()
+                        # L1 loss
+                        normal_l1_loss = torch.abs(gs_normal_img - mono_normal).mean()
+                        external_normal_prior_loss = current_normal_prior_weight * (normal_dot_loss + normal_l1_loss)
+                        self.log('train/GS_external_normal_prior_loss', external_normal_prior_loss)
+                        self.log('train/GS_normal_prior_weight', current_normal_prior_weight)
+
                 # GS loss and backward
                 loss_gaussian= (1.0 - self.op.lambda_dssim) * Ll1 + \
                     self.op.lambda_dssim * ssim_loss + 0.01*scaling_reg + \
                         depth_loss_gs  + \
-                            normal_loss_gs
+                            normal_loss_gs + \
+                                external_depth_prior_loss + \
+                                    external_normal_prior_loss
                 
                 self.log('train/loss_gaussian', float(loss_gaussian))
                 time41=time.time()

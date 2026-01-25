@@ -37,6 +37,10 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
+    # External depth/normal prior support
+    depth_params: dict = None
+    depth_path: str = ""
+    normal_path: str = ""
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -71,7 +75,8 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, 
+                      depths_folder="", normals_folder="", depths_params=None):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -104,6 +109,19 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
 
         
         image_name = os.path.basename(image_path).split(".")[0]
+        
+        # Get depth params for this image
+        n_remove = len(extr.name.split('.')[-1]) + 1
+        depth_params = None
+        if depths_params is not None:
+            try:
+                depth_params = depths_params[extr.name[:-n_remove]]
+            except:
+                pass  # depth params not found for this image
+        
+        # Construct depth and normal paths
+        depth_path = os.path.join(depths_folder, f"{extr.name[:-n_remove]}.png") if depths_folder else ""
+        normal_path = os.path.join(normals_folder, f"{extr.name[:-n_remove]}.npz") if normals_folder else ""
        
         if not os.path.exists(image_path):
             image = None
@@ -111,7 +129,8 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
             image = Image.open(image_path)
            
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height)
+                              image_path=image_path, image_name=image_name, width=width, height=height,
+                              depth_params=depth_params, depth_path=depth_path, normal_path=normal_path)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -205,15 +224,17 @@ def normalize_scene(pcd,cam_infos_unsorted,inv_trans, scale):
         W2C_norm = np.linalg.inv(C2W_norm)
         R_norm = W2C_norm[:3, :3].transpose()
         t_norm = W2C_norm[:3, 3]
-        cam_info = CameraInfo(uid=cam[0], R=R_norm, T=t_norm, FovY=cam[3], FovX=cam[4], image=cam[5],
-                              image_path=cam[6], image_name=cam[7], width=cam[8], height=cam[9])
+        cam_info = CameraInfo(uid=cam.uid, R=R_norm, T=t_norm, FovY=cam.FovY, FovX=cam.FovX, image=cam.image,
+                              image_path=cam.image_path, image_name=cam.image_name, width=cam.width, height=cam.height,
+                              depth_params=cam.depth_params, depth_path=cam.depth_path, normal_path=cam.normal_path)
         # print(cam[7])
         norm_cam_infos_unsorted.append(cam_info)
         
     return normalized_pcd, norm_cam_infos_unsorted
 
 
-def readColmapSceneInfo(path, images, eval, lod, llffhold=8,scale_input=1.0,center_input=[0,0,0]):
+def readColmapSceneInfo(path, images, eval, lod, llffhold=8, scale_input=1.0, center_input=[0,0,0],
+                        depths="", normals=""):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -230,6 +251,38 @@ def readColmapSceneInfo(path, images, eval, lod, llffhold=8,scale_input=1.0,cent
             cameras_intrinsic_file = os.path.join(path, "colmap", "cameras.txt")
             cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
             cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
+    
+    # Load depth params if depths are specified
+    depths_params = None
+    depths_folder = ""
+    normals_folder = ""
+    
+    if depths != "":
+        # Determine depth params file based on depth type
+        absolute_depth_types = ['depths_metric3dv2', 'metric3dv2']
+        if depths in absolute_depth_types:
+            depth_params_file = os.path.join(path, "sparse/0", "metric_depth_params.json")
+        else:
+            depth_params_file = os.path.join(path, "sparse/0", "depth_params.json")
+        
+        if os.path.exists(depth_params_file):
+            with open(depth_params_file, 'r') as f:
+                depths_params = json.load(f)
+            print(f"Loaded depth params from {depth_params_file}")
+        else:
+            print(f"Warning: depth params file {depth_params_file} not found, using default scale=1.0, offset=0.0")
+        
+        depths_folder = os.path.join(path, depths)
+        if not os.path.exists(depths_folder):
+            print(f"Warning: depths folder {depths_folder} not found")
+            depths_folder = ""
+    
+    if normals != "":
+        normals_folder = os.path.join(path, normals)
+        if not os.path.exists(normals_folder):
+            print(f"Warning: normals folder {normals_folder} not found")
+            normals_folder = ""
+    
     ply_path = os.path.join(path, "sparse/0/points3D.ply")
     bin_path = os.path.join(path, "sparse/0/points3D.bin")
     
@@ -252,7 +305,14 @@ def readColmapSceneInfo(path, images, eval, lod, llffhold=8,scale_input=1.0,cent
  
     
     reading_dir = "images" if images == None else images
-    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
+    cam_infos_unsorted = readColmapCameras(
+        cam_extrinsics=cam_extrinsics, 
+        cam_intrinsics=cam_intrinsics, 
+        images_folder=os.path.join(path, reading_dir),
+        depths_folder=depths_folder,
+        normals_folder=normals_folder,
+        depths_params=depths_params
+    )
     #Normalize with given parameters or automatically
     if scale_input!=0.0 or center_input!=[0,0,0]:
         tc = torch.tensor(center_input).reshape(3, 1)
@@ -271,9 +331,10 @@ def readColmapSceneInfo(path, images, eval, lod, llffhold=8,scale_input=1.0,cent
     
     train_cam_infos = []
     test_cam_infos = []
- 
+
+    ## 如有train_test_lists.json, 按照json文件划分train,test cam infos
+
     if eval:
- 
         for idx, c in enumerate(cam_infos):
             if not os.path.exists(c.image_path):
                 continue
@@ -283,12 +344,9 @@ def readColmapSceneInfo(path, images, eval, lod, llffhold=8,scale_input=1.0,cent
             else:
                 test_cam_infos.append(c)
 
-               
-
     else:
         train_cam_infos = cam_infos
         test_cam_infos = []
-
 
 
     nerf_normalization = getNerfppNorm(train_cam_infos)

@@ -64,6 +64,9 @@ class ModelParams(ParamGroup):
         self.data_device = "cuda"
         self.eval = True
         self.lod = 0
+        # External depth/normal prior paths
+        self.depths = ""   # Relative path to depth maps folder (e.g., "depths_any2")
+        self.normals = ""  # Relative path to normal maps folder (e.g., "normals")
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

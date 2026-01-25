@@ -9,6 +9,8 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import os
+import cv2
 from gaussian_splatting.scene.cameras import Camera
 import numpy as np
 from gaussian_splatting.utils.general_utils import PILtoTorch
@@ -46,10 +48,39 @@ def loadCam(args, id, cam_info, resolution_scale):
     if resized_image_rgb.shape[1] == 4:
         loaded_mask = resized_image_rgb[3:4, ...]
 
+    # === Load external depth prior ===
+    invdepthmap = None
+    depth_path = getattr(cam_info, 'depth_path', "")
+    if depth_path and os.path.exists(depth_path):
+        invdepthmap = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+        if invdepthmap is not None:
+            # Check depth type from args
+            depths_type = getattr(args, 'depths', '')
+            if depths_type in ['metric3dv2', 'depths_metric3dv2']:
+                # Metric depth in mm -> meters
+                invdepthmap = invdepthmap.astype(np.float32) / 1000.0
+            else:
+                # Relative depth normalized to 16-bit
+                invdepthmap = invdepthmap.astype(np.float32) / 65535.0
+    
+    # === Load external normal prior ===
+    normalmap = None
+    normal_path = getattr(cam_info, 'normal_path', "")
+    if normal_path and os.path.exists(normal_path):
+        try:
+            normalmap = np.load(normal_path)['arr_0']  # .npz format
+        except:
+            pass  # normal file not found or invalid format
+
     return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
                   FoVx=cam_info.FovX, FoVy=cam_info.FovY, 
                   image=gt_image, gt_alpha_mask=loaded_mask,
-                  image_name=cam_info.image_name, uid=id, data_device=args.data_device)
+                  image_name=cam_info.image_name, uid=id, data_device=args.data_device,
+                  # External depth/normal prior
+                  depth_params=getattr(cam_info, 'depth_params', None),
+                  invdepthmap=invdepthmap,
+                  normalmap=normalmap,
+                  resolution=resolution)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args):
     camera_list = []
