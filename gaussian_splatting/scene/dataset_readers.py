@@ -348,21 +348,65 @@ def readColmapSceneInfo(path, images, eval, lod, llffhold=8, scale_input=1.0, ce
     train_cam_infos = []
     test_cam_infos = []
 
-    ## 如有train_test_lists.json, 按照json文件划分train,test cam infos
-
-    if eval:
-        for idx, c in enumerate(cam_infos):
-            if not os.path.exists(c.image_path):
-                continue
-            if idx % llffhold != 0:
-                train_cam_infos.append(c)
-              
+    ## Check if train_test_lists.json exists (for ScanNet++ and similar datasets)
+    train_test_file = os.path.join(path, 'train_test_lists.json')
+    train_test_split = None
+    
+    if os.path.exists(train_test_file):
+        print(f"Found train_test_lists.json, using official train/test split")
+        with open(train_test_file, 'r') as f:
+            train_test_split = json.load(f)
+        
+        if 'train' in train_test_split and 'test' in train_test_split:
+            train_set = set(train_test_split['train'])
+            test_set = set(train_test_split['test'])
+            print(f"  Train set: {len(train_set)} images")
+            print(f"  Test set: {len(test_set)} images")
+            
+            if eval:
+                for c in cam_infos:
+                    if not os.path.exists(c.image_path):
+                        continue
+                    # Extract image filename (e.g., "DSC06199.JPG" from path)
+                    img_name = os.path.basename(c.image_path)
+                    
+                    if img_name in train_set:
+                        train_cam_infos.append(c)
+                    elif img_name in test_set:
+                        test_cam_infos.append(c)
+                    else:
+                        # If image not in either set, skip it
+                        pass
             else:
-                test_cam_infos.append(c)
+                # If not eval mode, use all images for training
+                for c in cam_infos:
+                    if not os.path.exists(c.image_path):
+                        continue
+                    img_name = os.path.basename(c.image_path)
+                    if img_name in train_set:
+                        train_cam_infos.append(c)
+                test_cam_infos = []
+            
+            print(f"Loaded {len(train_cam_infos)} train cameras, {len(test_cam_infos)} test cameras")
+        else:
+            print("Warning: train_test_lists.json missing 'train' or 'test' key, falling back to default split")
+            train_test_split = None
+    
+    # Fall back to default split if train_test_lists.json not available or invalid
+    if train_test_split is None:
+        if eval:
+            for idx, c in enumerate(cam_infos):
+                if not os.path.exists(c.image_path):
+                    continue
+                if idx % llffhold != 0:
+                    train_cam_infos.append(c)
+                  
+                else:
+                    test_cam_infos.append(c)
 
-    else:
-        train_cam_infos = cam_infos
-        test_cam_infos = []
+        else:
+            train_cam_infos = cam_infos
+            test_cam_infos = []
 
 
     nerf_normalization = getNerfppNorm(train_cam_infos)

@@ -1,5 +1,6 @@
 import os
 import math
+import json
 import numpy as np
 from PIL import Image
 
@@ -166,8 +167,22 @@ class ColmapDatasetBase():
             all_c2w, all_images, all_fg_masks,all_names,special_c2w = [], [], [],[],[]
            
             if_corrected = []
-           
-
+            
+            # Load train/test split if available (for ScanNet++ and similar datasets)
+            train_test_split = None
+            train_test_file = os.path.join(self.config.root_dir, 'train_test_lists.json')
+            if os.path.exists(train_test_file):
+                print(f"Found train_test_lists.json, using official split for {self.split}")
+                with open(train_test_file, 'r') as f:
+                    train_test_split = json.load(f)
+                    # Get image names for current split
+                    if self.split in train_test_split:
+                        split_images = set(train_test_split[self.split])
+                        print(f"Using {len(split_images)} images for {self.split} split")
+                    else:
+                        print(f"Warning: split '{self.split}' not found in train_test_lists.json, falling back to default split")
+                        train_test_split = None
+            
             for i, key in enumerate(sorted_keys):
                 d = imdata[key]
                 R = d.qvec2rotmat()
@@ -179,64 +194,48 @@ class ColmapDatasetBase():
                 img_path = os.path.join(self.config.root_dir, 'images', d.name)
                 if not os.path.exists(img_path):
                     continue
-                if self.split not in ['train']:
-                    
-                    if i % 8 != 0: continue
-                    special_c2w.append(c2w)
-                    
-                    img = Image.open(img_path)
-                  
-                    img = img.resize(img_wh, Image.BICUBIC)
-                    img = TF.to_tensor(img).permute(1, 2, 0)[...,:3]
-                    img = img.to(self.rank) if self.config.load_data_on_gpu else img.cpu()
-                    if apply_mask:
-                        mask_paths = [os.path.join(mask_dir, d.name), os.path.join(mask_dir, d.name[3:])]
-                        mask_paths = list(filter(os.path.exists, mask_paths))
-                        assert len(mask_paths) == 1
-                        mask = Image.open(mask_paths[0]).convert('L') # (H, W, 1)
-                        mask = mask.resize(img_wh, Image.BICUBIC)
-                        mask = TF.to_tensor(mask)[0]
-                    else:
-                        mask = torch.ones_like(img[...,0], device=img.device)
-                                     
-                   
-                    all_fg_masks.append(mask) # (h, w)
-                    all_images.append(img)
-                    all_names.append(d.name.split(".")[0])
-                 
-                   
-                    if_corrected.append(1)
-
-                else:
-                    if i % 8 == 0: continue
-                    
-                  
-                    special_c2w.append(c2w)
-                    
-                    img = Image.open(img_path)
-                   
-
-                    img = img.resize(img_wh, Image.BICUBIC)
-                    img = TF.to_tensor(img).permute(1, 2, 0)[...,:3]
-                    img = img.to(self.rank) if self.config.load_data_on_gpu else img.cpu()
-                    if apply_mask:
-                        mask_paths = [os.path.join(mask_dir, d.name), os.path.join(mask_dir, d.name[3:])]
-                        mask_paths = list(filter(os.path.exists, mask_paths))
-                      
-                        assert len(mask_paths) == 1
-                        mask = Image.open(mask_paths[0]).convert('L') # (H, W, 1)
-                        mask = mask.resize(img_wh, Image.BICUBIC)
-                        mask = TF.to_tensor(mask)[0]
-                    else:
-                        mask = torch.ones_like(img[...,0], device=img.device)
-                    
-                  
                 
-                    all_fg_masks.append(mask) # (h, w)
-                    all_images.append(img)
-                    all_names.append(d.name.split(".")[0])
-                   
-                    if_corrected.append(1)
+                # Determine if this image should be included based on split
+                should_include = False
+                if train_test_split is not None:
+                    # Use official split from train_test_lists.json
+                    should_include = d.name in split_images
+                else:
+                    # Use default split (every 8th image for test)
+                    if self.split not in ['train']:
+                        should_include = (i % 8 == 0)
+                    else:
+                        should_include = (i % 8 != 0)
+                
+                if not should_include:
+                    continue
+                    
+                special_c2w.append(c2w)
+                    
+                img = Image.open(img_path)
+               
+                img = img.resize(img_wh, Image.BICUBIC)
+                img = TF.to_tensor(img).permute(1, 2, 0)[...,:3]
+                img = img.to(self.rank) if self.config.load_data_on_gpu else img.cpu()
+                if apply_mask:
+                    mask_paths = [os.path.join(mask_dir, d.name), os.path.join(mask_dir, d.name[3:])]
+                    mask_paths = list(filter(os.path.exists, mask_paths))
+                    if len(mask_paths) > 0:
+                        mask = Image.open(mask_paths[0]).convert('L') # (H, W, 1)
+                        mask = mask.resize(img_wh, Image.BICUBIC)
+                        mask = TF.to_tensor(mask)[0]
+                    else:
+                        mask = torch.ones_like(img[...,0], device=img.device)
+                else:
+                    mask = torch.ones_like(img[...,0], device=img.device)
+                                 
+               
+                all_fg_masks.append(mask) # (h, w)
+                all_images.append(img)
+                all_names.append(d.name.split(".")[0])
+             
+               
+                if_corrected.append(1)
 
           
 
