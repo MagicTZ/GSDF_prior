@@ -143,10 +143,17 @@ class NeRFSystem(BaseSystem):
             {'type': 'grayscale', 'img': out['depth'].view(H, W), 'kwargs': {}},
             {'type': 'grayscale', 'img': out['opacity'].view(H, W), 'kwargs': {'cmap': None, 'data_range': (0, 1)}}
         ])
-        return {
+        
+        # Store outputs for on_validation_epoch_end (PyTorch Lightning 2.0+)
+        output = {
             'psnr': psnr,
             'index': batch['index']
         }
+        if not hasattr(self, 'validation_step_outputs'):
+            self.validation_step_outputs = []
+        self.validation_step_outputs.append(output)
+        
+        return output
           
     
     """
@@ -155,8 +162,13 @@ class NeRFSystem(BaseSystem):
         pass
     """
     
-    def validation_epoch_end(self, out):
-        out = self.all_gather(out)
+    def on_validation_epoch_end(self):
+        # PyTorch Lightning 2.0+ uses on_validation_epoch_end instead of validation_epoch_end
+        # Store outputs as instance attribute during validation_step
+        if not hasattr(self, 'validation_step_outputs'):
+            return
+            
+        out = self.all_gather(self.validation_step_outputs)
         if self.trainer.is_global_zero:
             out_set = {}
             for step_out in out:
@@ -168,7 +180,10 @@ class NeRFSystem(BaseSystem):
                     for oi, index in enumerate(step_out['index']):
                         out_set[index[0].item()] = {'psnr': step_out['psnr'][oi]}
             psnr = torch.mean(torch.stack([o['psnr'] for o in out_set.values()]))
-            self.log('val/psnr', psnr, prog_bar=True, rank_zero_only=True)         
+            self.log('val/psnr', psnr, prog_bar=True, rank_zero_only=True)
+        
+        # Clear the outputs for next epoch
+        self.validation_step_outputs.clear()         
 
     def test_step(self, batch, batch_idx):  
         out = self(batch)
@@ -180,13 +195,26 @@ class NeRFSystem(BaseSystem):
             {'type': 'grayscale', 'img': out['depth'].view(H, W), 'kwargs': {}},
             {'type': 'grayscale', 'img': out['opacity'].view(H, W), 'kwargs': {'cmap': None, 'data_range': (0, 1)}}
         ])
-        return {
+        
+        # Store outputs for on_test_epoch_end (PyTorch Lightning 2.0+)
+        output = {
             'psnr': psnr,
             'index': batch['index']
-        }      
+        }
+        if not hasattr(self, 'test_step_outputs'):
+            self.test_step_outputs = []
+        self.test_step_outputs.append(output)
+        
+        return output      
     
-    def test_epoch_end(self, out):
-        out = self.all_gather(out)
+    def on_test_epoch_end(self):
+        """
+        PyTorch Lightning 2.0+ uses on_test_epoch_end instead of test_epoch_end.
+        """
+        if not hasattr(self, 'test_step_outputs'):
+            return
+            
+        out = self.all_gather(self.test_step_outputs)
         if self.trainer.is_global_zero:
             out_set = {}
             for step_out in out:
@@ -209,6 +237,9 @@ class NeRFSystem(BaseSystem):
             )
             
             self.export()
+        
+        # Clear the outputs for next epoch
+        self.test_step_outputs.clear()
 
     def export(self):
         mesh = self.model.export(self.config.export)
