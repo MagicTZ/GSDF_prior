@@ -12,9 +12,15 @@ import os
 import numpy as np
 
 import subprocess
-cmd = 'nvidia-smi -q -d Memory |grep -A4 GPU|grep Used'
-result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE).stdout.decode().split('\n')
-os.environ['CUDA_VISIBLE_DEVICES']=str(np.argmin([int(x.split()[2]) for x in result[:-1]]))
+# 只有在CUDA_VISIBLE_DEVICES未设置时才自动选择GPU
+# 这样可以支持并行训练脚本指定特定GPU
+if 'CUDA_VISIBLE_DEVICES' not in os.environ:
+    cmd = 'nvidia-smi -q -d Memory |grep -A4 GPU|grep Used'
+    result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE).stdout.decode().split('\n')
+    os.environ['CUDA_VISIBLE_DEVICES']=str(np.argmin([int(x.split()[2]) for x in result[:-1]]))
+    print(f"Auto-selected GPU: {os.environ['CUDA_VISIBLE_DEVICES']}")
+else:
+    print(f"Using pre-set CUDA_VISIBLE_DEVICES: {os.environ['CUDA_VISIBLE_DEVICES']}")
 
 os.system('echo $CUDA_VISIBLE_DEVICES')
 

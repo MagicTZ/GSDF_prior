@@ -1,10 +1,10 @@
-name: "0a184cf634"
+name: "6f1848d1e3"
 tag: "gsdf_scannetpp_with_prior"
 seed: 42
 
 dataset:
   name: colmap
-  root_dir: /root/autodl-tmp/Proj/GS-Reconstruction/Data/ScanNetpp/0a184cf634
+  root_dir: /root/autodl-tmp/Proj/GS-Reconstruction/Data/ScanNetpp/6f1848d1e3
   img_downscale: 2
   up_est_method: ground
   center_est_method: point
@@ -21,7 +21,7 @@ model:
   name: neus
   radius: 7
   using_pretrain: false
-  using_pretrain_path: output/0a184cf634
+  using_pretrain_path: output/6f1848d1e3
   num_samples_per_ray: 1024
   gs_sampling: true
   num_samples_equispaced: 64

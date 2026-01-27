@@ -268,7 +268,6 @@ class ColmapDatasetBase():
             
             # Save transformation parameters to JSON file
             transform_file = os.path.join(self.config.root_dir, 'transform_params_sdf.json')
-            import json
             with open(transform_file, 'w') as f:
                 json.dump(transform_params, f, indent=2)
             print(f"Saved SDF transformation parameters to {transform_file}")

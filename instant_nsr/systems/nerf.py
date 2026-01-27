@@ -33,6 +33,9 @@ class NeRFSystem(BaseSystem):
     def preprocess_data(self, batch, stage):
         if 'index' in batch: # validation / testing
             index = batch['index']
+            # 确保 index 和 all_images 在同一设备上 (修复 load_data_on_gpu=false 时的设备不匹配)
+            if index.device != self.dataset.all_images.device:
+                index = index.to(self.dataset.all_images.device)
         else:
             if self.config.model.batch_image_sampling:
                 index = torch.randint(0, len(self.dataset.all_images), size=(self.train_num_rays,), device=self.dataset.all_images.device)
