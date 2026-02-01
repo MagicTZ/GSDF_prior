@@ -14,7 +14,32 @@ Representing 3D scenes from multiview images remains a core challenge in compute
 Our approach leverages mutual guidance and joint supervision during the training process to mutually enhance reconstruction and rendering. 
 Specifically, our method guides the Gaussian primitives to locate near potential surfaces and accelerates the SDF convergence. This implicit mutual guidance ensures robustness and accuracy in both synthetic and real-world scenarios. Experimental results demonstrate that our method boosts the SDF optimization process to reconstruct more detailed geometry, while reducing floaters and blurry edge artifacts in rendering by aligning Gaussian primitives with the underlying geometry. 
 
+## New Features in this Repo
 
+This repository contains several enhancements to the original GSDF, specifically optimized for large-scale indoor scenes (e.g., ScanNet++):
+
+### 1. ScanNet++ Dataset Support
+- **Full Pipeline Support**: Complete support for ScanNet++ dataset, including data loading, splitting, and evaluation.
+- **Coordinate Transformation**: 
+  - Automatic normalization of large indoor scenes into the unit sphere for stable training.
+  - Automatic inverse transformation during mesh export to align with Ground Truth for accurate evaluation.
+  - See `scripts/COORDINATE_TRANSFORM_README.md` for details.
+
+### 2. Geometric Priors for Indoor Scenes
+To address the challenge of texture-less regions (e.g., white walls, floors) in indoor scenes, we integrated external geometric priors:
+- **Monocular Depth Prior**: Supports Metric3D v2 with Pearson Correlation Loss (scale-invariant).
+- **Normal Prior**: Supports external normal maps with Cosine Similarity and L1 Loss.
+- **Warmup Strategy**: Priors are applied with a decay schedule to guide early training without over-constraining fine details.
+
+### 3. Advanced Mesh Post-Processing
+- **TSDF Refusion**: Instead of direct Marching Cubes, we implement a TSDF Fusion based post-processing step. It renders the learned SDF as depth maps and re-fuses them to generate smoother, higher-quality meshes.
+- **Mesh Cleaning**: Automatic removal of small floating components and noise (`_cleaned.ply`).
+
+### 4. Engineering Improvements
+- **Parallel Training System**: `scripts/batch_train_parallel.sh` for multi-GPU parallel training of multiple scenes.
+- **Indoor-Specific Configurations**: 
+  - `inside_out: true` initialization for correct indoor SDF topology.
+  - Optimized background settings (disabled `learned_background` for enclosed rooms).
 
 ## Installation
 
@@ -109,7 +134,7 @@ This script will store the log (with running-time code) into ```outputs/${tag}``
 
 
 
-<!-- ### Training multiple scenes
+### Training multiple scenes
 
 To train multiple scenes in parallel, we provide batch training scripts: 
  - Tanks&Temples: ```train_tnt.sh```
@@ -119,7 +144,23 @@ To train multiple scenes in parallel, we provide batch training scripts:
 
  > Notice 1: Make sure you have enough GPU card or memories to run these scenes at the same time.
 
- > Notice 2: Each process occupies many cpu cores, which may slow down the training process. Set ```torch.set_num_threads(32)``` accordingly in the ```train.py``` to alleviate it. -->
+ > Notice 2: Each process occupies many cpu cores, which may slow down the training process. Set ```torch.set_num_threads(32)``` accordingly in the ```train.py``` to alleviate it.
+
+#### Training ScanNet++ (New)
+
+We provide specialized scripts for ScanNet++ dataset:
+
+1. **Single Scene Training**:
+   ```bash
+   bash train_scannetpp_smart.sh
+   ```
+   This script automatically handles coordinate transformation and uses the optimized indoor configuration.
+
+2. **Parallel Batch Training**:
+   ```bash
+   bash scripts/batch_train_parallel.sh
+   ```
+   This script can train multiple scenes in parallel across available GPUs.
 
 ## Evaluation
 
@@ -143,6 +184,12 @@ python metrics.py -m <path to trained model> # Compute error metrics on renderin
 
 ### Reconstruction
 For the geomtry reconstruction evaluation, please refer to [2DGS](https://github.com/hbb1/2d-gaussian-splatting?tab=readme-ov-file) for calculating the Chamfer Distance.
+
+For ScanNet++, use our batch evaluation script:
+```bash
+python scripts/batch_eval_scannetpp.py
+```
+This script evaluates the reconstructed meshes against Ground Truth, calculating Precision, Recall, and F-score.
 
 ## Contact
 - Mulin Yu: yumulin@pjlab.org.cn
