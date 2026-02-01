@@ -31,6 +31,9 @@ To address the challenge of texture-less regions (e.g., white walls, floors) in 
 - **Normal Prior**: Supports external normal maps with Cosine Similarity and L1 Loss.
 - **Warmup Strategy**: Priors are applied with a decay schedule to guide early training without over-constraining fine details.
 
+<img width="880" height="694" alt="image" src="https://github.com/user-attachments/assets/a6317d10-477a-435b-88fc-a2ec1b4bae2b" />
+
+
 ### 3. Advanced Mesh Post-Processing
 - **TSDF Refusion**: Instead of direct Marching Cubes, we implement a TSDF Fusion based post-processing step. It renders the learned SDF as depth maps and re-fuses them to generate smoother, higher-quality meshes.
 - **Mesh Cleaning**: Automatic removal of small floating components and noise (`_cleaned.ply`).
@@ -190,10 +193,6 @@ For ScanNet++, use our batch evaluation script:
 python scripts/batch_eval_scannetpp.py
 ```
 This script evaluates the reconstructed meshes against Ground Truth, calculating Precision, Recall, and F-score.
-
-## Contact
-- Mulin Yu: yumulin@pjlab.org.cn
-- Tao Lu: taolu@smail.nju.edu.cn
 
 
 ## Citation
