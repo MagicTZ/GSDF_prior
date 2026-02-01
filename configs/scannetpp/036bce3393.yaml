@@ -10,7 +10,7 @@ dataset:
   center_est_method: point
   n_test_traj_steps: 2
   apply_mask: false
-  load_data_on_gpu: false  # 改为false，数据存CPU节省显存
+  load_data_on_gpu: true  # 改为false，数据存CPU节省显存
   neuralangelo_scale: 0
   neuralangelo_center: [0,0,0]
   # External depth/normal prior paths
@@ -35,7 +35,7 @@ model:
   randomized: true
   ray_chunk: 1024
   cos_anneal_end: 30000
-  learned_background: true
+  learned_background: false
   background_color: random
   if_gaussian: true
   if_check_gaussian_opacity: false
@@ -75,6 +75,7 @@ model:
       sphere_init: true
       sphere_init_radius: 0.8
       weight_norm: true
+      inside_out: true
   texture:
     name: volume-radiance
     input_feature_dim: ${add:${model.geometry.feature_dim},3}
@@ -141,7 +142,7 @@ system:
     lambda_opaque: 0.0
     lambda_depth: 0.0
     sparsity_scale: 0.
-    lambda_smoothing: [0,0.0,1,2000,0.05]
+    lambda_smoothing: [0,0.0,1,2000,0.04]
     # SDF-GS mutual guidance (原有)
     depth_w: 0.5
     normal_w: 0.01
@@ -170,12 +171,12 @@ system:
       texture:
         lr: 0.01
         weight_decay: 1e-2
-      geometry_bg:
-        lr: 0.01
-        weight_decay: 1e-2
-      texture_bg:
-        lr: 0.01
-        weight_decay: 1e-2
+      # geometry_bg:
+      #   lr: 0.01
+      #   weight_decay: 1e-2
+      # texture_bg:
+      #   lr: 0.01
+      #   weight_decay: 1e-2
       variance:
         lr: 0.001
   

@@ -35,6 +35,15 @@ from os import makedirs
 import matplotlib.pyplot as plt
 import cv2
 
+# Mesh extraction utilities
+try:
+    import open3d as o3d
+    from gaussian_splatting.utils.mesh_utils import export_mesh_with_tsdf
+    MESH_UTILS_AVAILABLE = True
+except ImportError:
+    print("Warning: mesh_utils not available. Mesh extraction will be disabled.")
+    MESH_UTILS_AVAILABLE = False
+
 # def colorize_depth_maps(depth_map, min_depth, max_depth, cmap="Spectral", valid_mask=None):
 #         """
 #         Colorize depth maps.
@@ -202,7 +211,8 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     with open(os.path.join(model_path, name, "ours_{}".format(iteration), "per_view_count.json"), 'w') as fp:
             json.dump(per_view_dict, fp, indent=True)      
      
-def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool,given_center=[0,0,0], given_scale=0.0):
+def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, skip_mesh : bool,
+                given_center=[0,0,0], given_scale=0.0, tsdf_voxel=0.015, depth_trunc=5.0, num_clusters=100):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.feat_dim, dataset.n_offsets, dataset.voxel_size, dataset.update_depth, dataset.update_init_factor, dataset.update_hierachy_factor, dataset.use_feat_bank)
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False,given_scale=given_scale,given_center=given_center)
@@ -217,6 +227,41 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
 
         if not skip_test:
              render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background)
+        
+        # TSDF mesh导出
+        if not skip_mesh and MESH_UTILS_AVAILABLE:
+            print("\n" + "=" * 60)
+            print("Exporting mesh with TSDF fusion...")
+            print("=" * 60)
+            
+            train_dir = os.path.join(dataset.model_path, 'train', f"ours_{scene.loaded_iter}")
+            makedirs(train_dir, exist_ok=True)
+            
+            output_path = os.path.join(train_dir, f"mesh_iter{scene.loaded_iter}")
+            
+            try:
+                mesh_raw, mesh_clean = export_mesh_with_tsdf(
+                    gaussians=gaussians,
+                    render_func=render,
+                    prefilter_func=prefilter_voxel,
+                    pipeline=pipeline,
+                    viewpoint_stack=scene.getTrainCameras(),
+                    output_path=output_path,
+                    bg_color=bg_color,
+                    voxel_size=tsdf_voxel,
+                    depth_trunc=depth_trunc,
+                    num_clusters=num_clusters,
+                    use_post_process=True
+                )
+                
+                print("\n" + "=" * 60)
+                print("✓ Mesh export completed successfully!")
+                print("=" * 60)
+                
+            except Exception as e:
+                print(f"\n✗ Mesh export failed: {e}")
+                import traceback
+                traceback.print_exc()
 
 if __name__ == "__main__":
     # Set up command line argument parser
@@ -226,8 +271,15 @@ if __name__ == "__main__":
     parser.add_argument("--iteration", default=-1, type=int)
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
+    parser.add_argument("--skip_mesh", action="store_true", help="Skip TSDF mesh extraction")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--config",required=True, help='path to config file,for the normalization parameters')
+    
+    # TSDF mesh parameters
+    parser.add_argument("--tsdf_voxel", default=0.015, type=float, help='TSDF voxel size in meters (default: 0.015m = 1.5cm)')
+    parser.add_argument("--depth_trunc", default=5.0, type=float, help='Max depth range for TSDF fusion (default: 5.0m)')
+    parser.add_argument("--num_clusters", default=100, type=int, help='Number of largest clusters to keep in post-processing (default: 100)')
+    
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
     from instant_nsr.utils.misc import load_config    
@@ -239,4 +291,6 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
-    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, given_center=config.dataset.neuralangelo_center, given_scale=config.dataset.neuralangelo_scale)
+    render_sets(model.extract(args), args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.skip_mesh,
+                given_center=config.dataset.neuralangelo_center, given_scale=config.dataset.neuralangelo_scale,
+                tsdf_voxel=args.tsdf_voxel, depth_trunc=args.depth_trunc, num_clusters=args.num_clusters)

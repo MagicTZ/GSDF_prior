@@ -179,7 +179,7 @@ class NeuSSystem(BaseSystem):
             parser.add_argument('--exp_dir', default='./exp')
             group = parser.add_mutually_exclusive_group(required=True)
             group.add_argument('--train', action='store_true')
-            out_path = "output/"+config.tag
+            out_path = os.path.join("output", config.tag, config.name)
             fake_input = ["--source_path",config.dataset.root_dir,"--model_path",out_path]
             fake_input.extend(sys.argv[1:])
             args = parser.parse_args(fake_input)
